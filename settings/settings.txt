@@ -1,0 +1,22 @@
+# Domain settings 
+
+t_stop = 0.25
+N = 100
+Gamma = 1.4;
+CFL = 0.5;
+epsilon = 1.0;
+x0 = 0.0
+x1 = 1.0
+nGhost = 2
+
+# Initial conditions 
+# state 1
+rhoL = 1.0
+vL = 0.0
+pL = 1.0
+
+#state 2
+rhoR = 0.125
+vR = 0.0
+pR = 0.1
+
