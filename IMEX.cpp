@@ -4,6 +4,9 @@
 #include <array>
 #include <set>
 #include <vector>
+#include <Eigen/Sparse>
+#include <Eigen/IterativeLinearSolvers>
+#include "/Users/simeon/Desktop/physics_phd/code/bin/eigen/unsupported/Eigen/src/IterativeSolvers/GMRES.h"
 
 extern double x0;
 extern double x1;
@@ -190,7 +193,7 @@ void setbVector(Eigen::VectorXd &b, stateVec &consVec, stateVec &explicitConsVec
                     - hHalf_tilde[N - 1] * explicitConsVec[N - 1][1]);
 }
 
-void setTMatrix(Eigen::SparseMatrix<double> &T, std::vector<double> &hHalf_tilde,
+void setTMatrix(Eigen::SparseMatrix<double> &T, std::vector<double>& hHalf_tilde,
                 double dt)
 {
 
@@ -251,7 +254,7 @@ void setTMatrix(Eigen::SparseMatrix<double> &T, std::vector<double> &hHalf_tilde
     T.insert(N, N - 2) = -0.25 * dt * dt / dx * hHalf_tilde[N - 1];
 }
 
-void implicitUpdate(stateVec &F_imp, stateVec &consVec, stateVec &explicitConsVec,
+void computeImplicitPressure(std::vector<double>& implicitPressure, stateVec &consVec, stateVec &explicitConsVec,
                     double dt)
 {
     int Niter = 2;
@@ -264,9 +267,7 @@ void implicitUpdate(stateVec &F_imp, stateVec &consVec, stateVec &explicitConsVe
     std::vector<double> initMomentum(N);
 
     initialisePicardVars(enthalpies, hHalf_tilde, initKineticEnergy, initPressure,
-                         initMomentum, consVec, explicitConsVec);
-
-    PicardSolver                     
+                         initMomentum, consVec, explicitConsVec);          
 
     Eigen::SparseMatrix<double> T(N, N);
     setTMatrix(T, hHalf_tilde, dt);
@@ -274,14 +275,25 @@ void implicitUpdate(stateVec &F_imp, stateVec &consVec, stateVec &explicitConsVe
     Eigen::VectorXd b(N);
     setbVector(b, consVec, explicitConsVec, hHalf_tilde, initKineticEnergy, dt);
 
-    Eigen::GMRES<Eigen::SparseMatrix<double>> solver;
+    Eigen::GMRES<Eigen::SparseMatrix<double> > solver;
     solver.compute(T);
     solver.setMaxIterations(Niter);
     //solver.setTolerance(tol);
 
     Eigen::VectorXd pressure_sol = solver.solve(b);
 
+    if(solver.info() != Eigen::Success)
+    {
+        std::cerr << "GMRES failed to converge" << std::endl;
+    }
+
     std::cout << "GMRES solved for pressure in " << Niter << " iterations" << std::endl;
+
+    for(int i =0; i < N; i++)
+    {
+        implicitPressure[i] = pressure_sol(i);
+    }
+
 }
 
 void IMEXupdate(stateVec &consVec, stateVec &F_exp, stateVec &F_imp)
@@ -290,15 +302,14 @@ void IMEXupdate(stateVec &consVec, stateVec &F_exp, stateVec &F_imp)
     double dt;
     compute_dt(consVec, dt);
     explicitUpdate(F_exp, consVec);
+    
     stateVec explicitConsVec;
-    implicitUpdate(F_imp, consVec, explicitConsVec, dt);
+    computeImplicitPressure(implicitPressure, F_imp, consVec, F_exp, dt);
 
     for (int i = 1; i <= N; i++)
     {
         explicitConsVec[i][0] = F_exp[i][0];
 
-        // consVec[i][1]
-        //     = F_exp[i][1] + dt / (2 * epsilon * dx) * (p_iminus1 -
-        //     p_iplus1);
+    
     }
 }
