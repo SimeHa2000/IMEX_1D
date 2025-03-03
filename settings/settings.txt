@@ -1,5 +1,4 @@
-# Domain settings 
-
+# Simulation parameters
 t_stop = 0.25
 N = 100
 Gamma = 1.4;
@@ -8,6 +7,7 @@ epsilon = 1.0;
 x0 = 0.0
 x1 = 1.0
 nGhost = 2
+
 
 # Initial conditions 
 # state 1

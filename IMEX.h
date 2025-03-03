@@ -8,6 +8,7 @@
 #include <cassert>
 #include <iostream>
 #include <vector>
+#include <Eigen/Sparse>
 
 typedef std::array<double, nVars> state;
 typedef std::vector<state> stateVec;
