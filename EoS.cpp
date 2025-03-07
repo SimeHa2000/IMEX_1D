@@ -12,7 +12,7 @@ extern int nGhost;
 typedef std::array<double, nVars> state;
 typedef std::vector<state> stateVec;
 
-void primToCons(state &prim, state &cons, double &epsilon)
+void primToCons(state &prim, state &cons)
 {
     double rho      = prim[0];
     double velocity = prim[1];
@@ -24,7 +24,7 @@ void primToCons(state &prim, state &cons, double &epsilon)
         = (pressure / (Gamma - 1)) + 0.5 * epsilon * velocity * velocity * rho;
 }
 
-void consToPrim(state &prim, state &cons, double &epsilon)
+void consToPrim(state &prim, state &cons)
 {
     double rho       = cons[0];
     double mom       = cons[1];
@@ -51,7 +51,9 @@ double getKineticEnergy(state& cons){
     double mom = cons[1];
     double E = cons[2];
 
-    double k = epsilon * 0.5 * mom * mom / rho;
+    double v = mom/rho;
+
+    double k = epsilon * 0.5 * rho * fabs(v * v);
 
     return k;
 }
@@ -63,7 +65,10 @@ double getEnthalpy(state& cons){
     double E = cons[2];
 
     double p = getPressure(cons);
-    double h = p / Gamma;
+    double k = getKineticEnergy(cons);
+    double e = E/rho - k/rho;
+    double h = e + p;
+    //double h = rho*p*Gamma / (Gamma -1.0);
 
     return h;
 }

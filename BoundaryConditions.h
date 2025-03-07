@@ -8,11 +8,17 @@
 #include <vector>
 
 #include "parms.h"
+#include "EoS.h"
 
-typedef std::array<double, nVars> state;
-typedef std::vector<state> stateVec;
+template <typename T>
+void transmissiveBC(std::vector<T>& consVec)
+{
+   consVec[1] = consVec[2];
+   consVec[0] = consVec[1];
 
-void transmissiveBC(stateVec& consVec);
+   consVec[N+1] = consVec[N];
+   consVec[N+1] = consVec[N+1];
+}
 
 #endif
 
