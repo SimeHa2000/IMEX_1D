@@ -27,7 +27,7 @@ void compute_dt(stateVec &consVec, double &dt, int iter)
     double wave_speed;
     dx = (x1 - x0) / N;
 
-    if (iter <= 3)
+    if (iter <= 10)
     {
 
         dx = (x1 - x0) / N;
@@ -64,6 +64,14 @@ void compute_dt(stateVec &consVec, double &dt, int iter)
     }
 
     dt = CFL * dx / wave_speed;
+
+    if (dt <= 1e-12)
+    {
+        std::cout << "dt is too small, stopping now" << std::endl;
+        exit(EXIT_FAILURE);
+    }
+
+    std::cout << "max wave speed " << wave_speed << std::endl;
 }
 
 void explicitFluxes(stateVec &consVec, stateVec &expFluxes)
@@ -81,12 +89,31 @@ void explicitFluxes(stateVec &consVec, stateVec &expFluxes)
 
         double k = getKineticEnergy(cons); // get kinetic energy
 
-        expFlux[0] = mom;
+        expFlux[0] = rho * v;
         expFlux[1] = rho * v * v;
         expFlux[2] = k * mom / rho;
 
         expFluxes[i] = expFlux;
     }
+}
+
+state getFluxVec(state &cons)
+{
+    // explicit flux from the Euler equations using VT splitting
+
+    state expFlux;
+
+    double rho = cons[0];
+    double mom = cons[1];
+    double v   = mom / rho;
+
+    double k = getKineticEnergy(cons); // get kinetic energy
+
+    expFlux[0] = rho * v;
+    expFlux[1] = rho * v * v;
+    expFlux[2] = k * mom / rho;
+
+    return expFlux;
 }
 
 void implicitFLuxes(stateVec &consVec, stateVec &impFluxes)
@@ -116,16 +143,19 @@ void implicitFLuxes(stateVec &consVec, stateVec &impFluxes)
 void explicitUpdate(stateVec &F_exp, stateVec &consVec, double &dt)
 {
 
-    stateVec expFluxes(N + nGhost);
-    stateVec fPlusHalf(N + nGhost);
-    stateVec fMinusHalf(N + nGhost);
+    stateVec expFluxes(N + 2 * nGhost);
+    stateVec fPlusHalf(N + 2 * nGhost);
+    stateVec fMinusHalf(N + 2 * nGhost);
+
     dx = (x1 - x0) / N;
 
     double aSpeed, aSpeedPlus, aSpeedMinus;
 
     explicitFluxes(consVec, expFluxes);
 
-    for (int i = nGhost; i <= N; i++)
+    transmissiveBC(consVec, nGhost);
+
+    for (int i = nGhost; i < N + nGhost; i++)
     {
 
         // aSpeed = std::max(std::fabs(consVec[i][1] / consVec[i][0]),
@@ -147,14 +177,39 @@ void explicitUpdate(stateVec &F_exp, stateVec &consVec, double &dt)
         }
     }
 
+    state    QL, QR, FluxL, FluxR;
+    stateVec FluxInt(N + 2 * nGhost);
+
+    for (int i = 0; i < N + 2 * nGhost - 1; i++)
+    {
+
+        QL    = consVec[i + nGhost - 1];
+        QR    = consVec[i + nGhost];
+        FluxL = getFluxVec(QL);
+        FluxR = getFluxVec(QR);
+
+        aSpeed = std::max(fabs(consVec[i - 1 + nGhost][1] / consVec[i - 1 + nGhost][0]),
+                          fabs(consVec[i + nGhost][1]) / consVec[i + nGhost][0]);
+
+        for (int var = 0; var < nVars; var++)
+        {
+            FluxInt[i][var]
+                = 0.5 * (FluxL[var] + FluxR[var]) - 0.5 * aSpeed * (QR[var] - QL[var]);
+        }
+    }
+
     // Final explicit update
-    for (int i = 2; i <= N; i++)
+    for (int i = nGhost; i < N + 2 * nGhost - 1; i++)
     {
 
         for (int var = 0; var < nVars; var++)
         {
+            // F_exp[i][var]
+            //     = consVec[i][var] - dt / dx * (fPlusHalf[i][var] - fMinusHalf[i][var]);
+
             F_exp[i][var]
-                = consVec[i][var] - dt / dx * (fPlusHalf[i][var] - fMinusHalf[i][var]);
+                = consVec[i][var]
+                  - dt / dx * (FluxInt[i + 1 - nGhost][var] - FluxInt[i - nGhost][var]);
         }
     }
 }
@@ -165,19 +220,21 @@ void computeEnthalpyOnFace(std::vector<double> &hHalf_tilde,
 
     for (int i = 0; i < hHalf_tilde.size(); i++)
     {
-        if (fabs(explicitConsVec[i][1]) <= 1e-10 && fabs(explicitConsVec[i + 1][1]) <= 1e-10)
-        {
-            hHalf_tilde[i] = fabs(0.5 * (enthalpies[i] + enthalpies[i + 1]));
-        }
+        // if (fabs(explicitConsVec[i][1]) <= 1e-10
+        //     && fabs(explicitConsVec[i + 1][1]) <= 1e-10)
+        // {
+        hHalf_tilde[i] = fabs(0.5 * (enthalpies[i] + enthalpies[i + 1]));
+        //}
 
-        else
-        {
+        // else
+        // {
 
-            hHalf_tilde[i] = fabs(0.5
-                                  * ((enthalpies[i] * explicitConsVec[i][1])
-                                     + (enthalpies[i + 1] * explicitConsVec[i + 1][1]))
-                                  / (explicitConsVec[i][1] + explicitConsVec[i + 1][1]));
-        }
+        //     hHalf_tilde[i] = fabs(0.5
+        //                           * ((enthalpies[i] * explicitConsVec[i][1])
+        //                              + (enthalpies[i + 1] * explicitConsVec[i + 1][1]))
+        //                           / (explicitConsVec[i][1] + explicitConsVec[i +
+        //                           1][1]));
+        // }
     }
 }
 
@@ -222,28 +279,18 @@ void setbVector(Eigen::VectorXd &b, stateVec &consVec, stateVec &explicitConsVec
     dx = (x1 - x0) / N;
     if (MatrixBC == transmissive)
     {
-        b(0) = explicitConsVec[0][2] - initKineticEnergy[0]
-               - 0.5 * dt / dx
-                     * (hHalf_tilde[0] * explicitConsVec[1][1]
-                        - hHalf_tilde[0] * explicitConsVec[0][1]);
-
-        for (int i = 1; i < N - 1; i++)
+        for (int i = 0; i < N; i++)
         {
-            b(i)
-                = explicitConsVec[i][2] - initKineticEnergy[i]
-                  - 0.5 * dt / dx
-                        * (hHalf_tilde[i] * explicitConsVec[i + 1][1]
-                           + (hHalf_tilde[i] - hHalf_tilde[i - 1]) * explicitConsVec[i][1]
-                           - hHalf_tilde[i - 1] * explicitConsVec[i - 1][1]);
+            double j = i + nGhost;
+            b(i)     = explicitConsVec[j][2] - initKineticEnergy[j]
+                   - (0.5 * dt / dx
+                      * (hHalf_tilde[j] * explicitConsVec[j + 1][1]
+                         + (hHalf_tilde[j] - hHalf_tilde[j - 1]) * explicitConsVec[j][1]
+                         - hHalf_tilde[j - 1] * explicitConsVec[j - 1][1]));
+
+            b(i) *= epsilon;
+            b(i) *= dx;
         }
-
-        b(N - 1) = explicitConsVec[N - 1][2] - initKineticEnergy[N - 1]
-                   - 0.5 * dt / dx
-                         * (hHalf_tilde[N - 1] * explicitConsVec[N - 1][1]
-                            - hHalf_tilde[N - 1 - 1] * explicitConsVec[N - 1 - 1][1]);
-
-        b *= epsilon;
-        b *= dx;
     }
 
     // The values outside the matrix bounds are set to a constant making the coefficient
@@ -252,6 +299,7 @@ void setbVector(Eigen::VectorXd &b, stateVec &consVec, stateVec &explicitConsVec
     {
         double p_boundaryL = getPressure(consVec[0]);
         double p_boundaryR = getPressure(consVec[N - 1]);
+        int    nL          = N + nGhost - 1;
 
         b(0) = explicitConsVec[0 + nGhost][2] - initKineticEnergy[0 + nGhost]
                - (0.5 * dt / dx
@@ -269,43 +317,53 @@ void setbVector(Eigen::VectorXd &b, stateVec &consVec, stateVec &explicitConsVec
                      - hHalf_tilde[0 + nGhost] * explicitConsVec[0 + nGhost][1]))
                + 0.25 * dt * dt / dx * hHalf_tilde[0 + nGhost] * p_boundaryL;
 
-        b(N - 1) = explicitConsVec[N - 1][2] - initKineticEnergy[N - 1]
-                   - (0.5 * dt / dx
-                      * (hHalf_tilde[N - 1] * explicitConsVec[N - 1][1]
-                         + explicitConsVec[N - 1][1]
-                               * (hHalf_tilde[N - 1] - hHalf_tilde[N - 2])
-                         - hHalf_tilde[N - 2] * explicitConsVec[N - 2][1]))
-                   + 0.25 * dt * dt / dx * (hHalf_tilde[N - 1] - hHalf_tilde[N - 2])
-                         * p_boundaryR
-                   + 0.25 * dt * dt / dx * hHalf_tilde[N - 1]
-                         * p_boundaryR; // out of bound so N = N-1
+        b(N - 1)
+            = explicitConsVec[nL][2] - initKineticEnergy[nL]
+              - (0.5 * dt / dx
+                 * (hHalf_tilde[N - 1] * explicitConsVec[N - 1][1]
+                    + explicitConsVec[nL + 1][1] * (hHalf_tilde[nL] - hHalf_tilde[nL - 1])
+                    - hHalf_tilde[nL - 1] * explicitConsVec[nL - 1][1]))
+              + 0.25 * dt * dt / dx * (hHalf_tilde[nL] - hHalf_tilde[nL - 1])
+                    * p_boundaryR
+              + 0.25 * dt * dt / dx * hHalf_tilde[nL]
+                    * p_boundaryR; // out of bound so N = N-1
 
-        b(N - 2) = explicitConsVec[N - 2][2] - initKineticEnergy[N - 2]
+        b(N - 2) = explicitConsVec[nL - 1][2] - initKineticEnergy[nL - 1]
                    - (0.5 * dt / dx
-                      * (hHalf_tilde[N - 2] * explicitConsVec[N - 2][1]
-                         + (hHalf_tilde[N - 2] - hHalf_tilde[N - 3])
-                               * explicitConsVec[N - 2][1]
-                         - hHalf_tilde[N - 3] * explicitConsVec[N - 3][1]))
-                   + 0.25 * dt * dt / dx * hHalf_tilde[N - 2] * p_boundaryR;
+                      * (hHalf_tilde[nL - 1] * explicitConsVec[nL - 1][1]
+                         + (hHalf_tilde[nL - 1] - hHalf_tilde[nL - 2])
+                               * explicitConsVec[nL - 1][1]
+                         - hHalf_tilde[nL - 2] * explicitConsVec[nL - 2][1]))
+                   + 0.25 * dt * dt / dx * hHalf_tilde[nL - 1] * p_boundaryR;
 
-        b *= epsilon;
-        b *= dx;
+        b(0) *= epsilon;
+        b(0) *= dx;
+        b(1) *= epsilon;
+        b(1) *= dx;
+        b(N - 2) *= epsilon;
+        b(N - 2) *= dx;
+        b(N - 1) *= epsilon;
+        b(N - 1) *= dx;
     }
 
     else
     {
         std::cout << "Invalid matrix boundary condition" << std::endl;
     }
-    int j;
-    for (int i = 2; i < N - 2; i++)
-    {
-        j    = i + nGhost;
-        b(i) = explicitConsVec[j][2] - initKineticEnergy[j]
-               - (0.5 * dt / dx
-                  * (hHalf_tilde[j] * explicitConsVec[j + 1][1]
-                     + (hHalf_tilde[j] - hHalf_tilde[j - 1]) * explicitConsVec[j][1]
-                     - hHalf_tilde[j - 1] * explicitConsVec[j - 1][1]));
-    }
+
+    // int j;
+    // for (int i = nGhost; i < N - nGhost; i++)
+    // {
+    //     j    = i + nGhost;
+    //     b(i) = explicitConsVec[j][2] - initKineticEnergy[j]
+    //            - (0.5 * dt / dx
+    //               * (hHalf_tilde[j] * explicitConsVec[j + 1][1]
+    //                  + (hHalf_tilde[j] - hHalf_tilde[j - 1]) * explicitConsVec[j][1]
+    //                  - hHalf_tilde[j - 1] * explicitConsVec[j - 1][1]));
+
+    //     b(i) *= epsilon;
+    //     b(i) *= dx;
+    // }
 }
 
 void setTMatrix(Eigen::SparseMatrix<double> &T, std::vector<double> &hHalf_tilde,
@@ -322,24 +380,30 @@ void setTMatrix(Eigen::SparseMatrix<double> &T, std::vector<double> &hHalf_tilde
     if (MatrixBC == transmissive)
     {
         // Row 1
-        T.insert(0, 0)
-            = -0.25 * dt * dt / dx * hHalf_tilde[0 + nGhost]
-              + 0.25 * dt * dt / dx * (hHalf_tilde[0 + nGhost] - hHalf_tilde[0 + nGhost])
-              + epsilon * dx / (Gamma - 1.0)
-              + 0.25 * dt * dt / dx * (hHalf_tilde[0 + nGhost] - hHalf_tilde[0 + nGhost]);
-        T.insert(0, 1)
-            = -0.25 * dt * dt / dx * (hHalf_tilde[0 + nGhost] - hHalf_tilde[0 + nGhost]);
+        T.insert(0, 0) = -0.25 * dt * dt / dx * hHalf_tilde[0 + nGhost - 1]
+                         + 0.25 * dt * dt / dx
+                               * (hHalf_tilde[0 + nGhost] - hHalf_tilde[0 + nGhost - 1])
+                         + epsilon * dx / (Gamma - 1.0)
+                         + 0.25 * dt * dt / dx
+                               * (hHalf_tilde[0 + nGhost] + hHalf_tilde[0 + nGhost - 1]);
+
+        T.insert(0, 1) = -0.25 * dt * dt / dx
+                         * (hHalf_tilde[0 + nGhost] - hHalf_tilde[0 + nGhost - 1]);
+
         T.insert(0, 2) = -0.25 * dt * dt / dx * hHalf_tilde[0 + nGhost];
 
         // Row 2
         T.insert(1, 0)
             = -0.25 * dt * dt / dx * hHalf_tilde[0 + nGhost]
               - 0.25 * dt * dt / dx * (hHalf_tilde[1 + nGhost] - hHalf_tilde[0 + nGhost]);
+
         T.insert(1, 1)
             = epsilon * dx / (Gamma - 1.0)
-              + 0.25 * dt * dt / dx * (hHalf_tilde[1 + nGhost] - hHalf_tilde[0 + nGhost]);
+              + 0.25 * dt * dt / dx * (hHalf_tilde[1 + nGhost] + hHalf_tilde[0 + nGhost]);
+
         T.insert(1, 2)
             = -0.25 * dt * dt / dx * (hHalf_tilde[1 + nGhost] - hHalf_tilde[0 + nGhost]);
+
         T.insert(1, 3) = -0.25 * dt * dt / dx * hHalf_tilde[1 + nGhost];
 
         // Row N-1
@@ -348,7 +412,7 @@ void setTMatrix(Eigen::SparseMatrix<double> &T, std::vector<double> &hHalf_tilde
               - 0.25 * dt * dt / dx * (hHalf_tilde[N] - hHalf_tilde[N - 1]);
         T.insert(N - 1 - 1, N - 1 - 1)
             = epsilon * dx / (Gamma - 1.0)
-              + 0.25 * dt * dt / dx * (hHalf_tilde[N - 1] - hHalf_tilde[N - 2]);
+              + 0.25 * dt * dt / dx * (hHalf_tilde[N - 1] + hHalf_tilde[N - 2]);
         T.insert(N - 1 - 1, N - 2 - 1)
             = 0.25 * dt * dt / dx * (hHalf_tilde[N - 1] - hHalf_tilde[N - 2]);
         T.insert(N - 1 - 1, N - 3 - 1) = -0.25 * dt * dt / dx * hHalf_tilde[N - 2];
@@ -358,7 +422,7 @@ void setTMatrix(Eigen::SparseMatrix<double> &T, std::vector<double> &hHalf_tilde
             = -0.25 * dt * dt / dx * hHalf_tilde[N - 1]
               - 0.25 * dt * dt / dx * (hHalf_tilde[N - 1] - hHalf_tilde[N - 1 - 1])
               + epsilon * dx / (Gamma - 1.0)
-              + 0.25 * dt * dt / dx * (hHalf_tilde[N - 1] - hHalf_tilde[N - 1 - 1]);
+              + 0.25 * dt * dt / dx * (hHalf_tilde[N - 1] + hHalf_tilde[N - 1 - 1]);
         T.insert(N - 1, N - 1 - 1)
             = 0.25 * dt * dt / dx * (hHalf_tilde[N - 1] - hHalf_tilde[N - 1 - 1]);
         T.insert(N - 1, N - 2 - 1) = -0.25 * dt * dt / dx * hHalf_tilde[N - 1 - 1];
@@ -369,7 +433,7 @@ void setTMatrix(Eigen::SparseMatrix<double> &T, std::vector<double> &hHalf_tilde
         // Row 1
         T.insert(0, 0)
             = epsilon * dx / (Gamma - 1.0)
-              + 0.25 * dt * dt / dx * (hHalf_tilde[0 + nGhost] - hHalf_tilde[0 + nGhost]);
+              + 0.25 * dt * dt / dx * (hHalf_tilde[0 + nGhost] + hHalf_tilde[0 + nGhost]);
         T.insert(0, 1)
             = -0.25 * dt * dt / dx * (hHalf_tilde[0 + nGhost] - hHalf_tilde[0 + nGhost]);
         T.insert(0, 2) = -0.25 * dt * dt / dx * hHalf_tilde[0 + nGhost];
@@ -379,28 +443,31 @@ void setTMatrix(Eigen::SparseMatrix<double> &T, std::vector<double> &hHalf_tilde
             = -0.25 * dt * dt / dx * (hHalf_tilde[1 + nGhost] - hHalf_tilde[0 + nGhost]);
         T.insert(1, 1)
             = epsilon * dx / (Gamma - 1.0)
-              + 0.25 * dt * dt / dx * (hHalf_tilde[1 + nGhost] - hHalf_tilde[0 + nGhost]);
+              + 0.25 * dt * dt / dx * (hHalf_tilde[1 + nGhost] + hHalf_tilde[0 + nGhost]);
         T.insert(1, 2)
             = -0.25 * dt * dt / dx * (hHalf_tilde[1 + nGhost] - hHalf_tilde[0 + nGhost]);
         T.insert(1, 3) = -0.25 * dt * dt / dx * hHalf_tilde[1 + nGhost];
 
-        // Row N-1
+        // Last cell in real domain sits at N + nGhost -1 =nL
+        //  Row N-1
+
+        int nL = N + nGhost - 1;
         T.insert(N - 1 - 1, N - 1)
-            = -0.25 * dt * dt / dx * (hHalf_tilde[N] - hHalf_tilde[N - 1]);
+            = -0.25 * dt * dt / dx * (hHalf_tilde[nL] - hHalf_tilde[nL - 1]);
         T.insert(N - 1 - 1, N - 1 - 1)
             = epsilon * dx / (Gamma - 1.0)
-              + 0.25 * dt * dt / dx * (hHalf_tilde[N - 1] - hHalf_tilde[N - 2]);
+              + 0.25 * dt * dt / dx * (hHalf_tilde[nL - 1] + hHalf_tilde[nL - 2]);
         T.insert(N - 1 - 1, N - 2 - 1)
-            = 0.25 * dt * dt / dx * (hHalf_tilde[N - 1] - hHalf_tilde[N - 2]);
-        T.insert(N - 1 - 1, N - 3 - 1) = -0.25 * dt * dt / dx * hHalf_tilde[N - 2];
+            = 0.25 * dt * dt / dx * (hHalf_tilde[nL - 1] - hHalf_tilde[nL - 2]);
+        T.insert(N - 1 - 1, N - 3 - 1) = -0.25 * dt * dt / dx * hHalf_tilde[nL - 2];
 
         // Row N
         T.insert(N - 1, N - 1)
-            = +epsilon * dx / (Gamma - 1.0)
-              + 0.25 * dt * dt / dx * (hHalf_tilde[N - 1] - hHalf_tilde[N - 1 - 1]);
+            = epsilon * dx / (Gamma - 1.0)
+              + 0.25 * dt * dt / dx * (hHalf_tilde[nL] + hHalf_tilde[nL - 1]);
         T.insert(N - 1, N - 1 - 1)
-            = 0.25 * dt * dt / dx * (hHalf_tilde[N - 1] - hHalf_tilde[N - 1 - 1]);
-        T.insert(N - 1, N - 2 - 1) = -0.25 * dt * dt / dx * hHalf_tilde[N - 1 - 1];
+            = 0.25 * dt * dt / dx * (hHalf_tilde[nL] - hHalf_tilde[nL - 1]);
+        T.insert(N - 1, N - 2 - 1) = -0.25 * dt * dt / dx * hHalf_tilde[nL - 1];
     }
 
     else
@@ -410,7 +477,7 @@ void setTMatrix(Eigen::SparseMatrix<double> &T, std::vector<double> &hHalf_tilde
 
     // All rows in between
     int j;
-    for (int i = 2; i < N - 2; i++)
+    for (int i = nGhost; i < N - nGhost; i++)
     {
         j = i + nGhost;
 
@@ -433,77 +500,126 @@ void computeImplicitPressure(std::vector<double> &implicitPressure, stateVec &co
                              stateVec &explicitConsVec, double dt)
 {
     int      Niter    = 2;
-    double   tol      = 1e-6;
-    matrixBC MatrixBC = Dirichlet;
+    double   tol      = 1e-10;
+    matrixBC MatrixBC = transmissive;
 
-    std::vector<double> enthalpies(N + nGhost);
-    std::vector<double> hHalf_tilde(N + nGhost);
-    std::vector<double> initKineticEnergy(N + nGhost);
-    std::vector<double> initPressure(N + nGhost);
-    std::vector<double> initMomentum(N + nGhost);
+    std::vector<double> enthalpies(N + 2 * nGhost);
+    std::vector<double> hHalf_tilde(N + 2 * nGhost);
+    std::vector<double> picardKineticEnergy(N + 2 * nGhost);
+    std::vector<double> picardPressure(N + 2 * nGhost);
+    std::vector<double> picardMomentum(N + 2 * nGhost);
 
-    initialisePicardVars(enthalpies, hHalf_tilde, initKineticEnergy, initPressure,
-                         initMomentum, consVec, explicitConsVec);
+    stateVec picardCons(N + 2 * nGhost);
 
-    Eigen::SparseMatrix<double> T(N, N);
-    setTMatrix(T, hHalf_tilde, dt, MatrixBC);
-
-    // std::cout << Eigen::MatrixXd(T) << std::endl;
-
-    Eigen::VectorXd b(N);
-    setbVector(b, consVec, explicitConsVec, hHalf_tilde, initKineticEnergy, dt, MatrixBC);
-
-    // std::cout << Eigen::VectorXd(b) << std::endl;
-
-    Eigen::BiCGSTAB<Eigen::SparseMatrix<double> > solver;
-    // Eigen::GMRES<Eigen::SparseMatrix<double> > solver;
-    solver.compute(T);
-    solver.setMaxIterations(Niter);
-    // solver.setTolerance(tol);
-
-    Eigen::VectorXd pressure_sol = solver.solve(b);
-
-    if (solver.info() != Eigen::Success)
+    for (int i = 0; i < N + 2 * nGhost; i++)
     {
-        std::cerr << "GMRES failed to converge" << std::endl;
-        exit(EXIT_FAILURE);
+        picardCons[i][0] = explicitConsVec[i][0];
+        picardCons[i][1] = explicitConsVec[i][1];
+        picardCons[i][2] = explicitConsVec[i][2];
     }
 
-    for (int i = nGhost; i < N; i++)
+    initialisePicardVars(enthalpies, hHalf_tilde, picardKineticEnergy, picardPressure,
+                         picardMomentum, consVec, explicitConsVec);
+
+    for (int iter = 0; iter < Niter; iter++) // TODO: calculate convergence
     {
-        implicitPressure[i] = pressure_sol(i);
+        // set Matrix T
+        Eigen::SparseMatrix<double> T(N, N);
+        setTMatrix(T, hHalf_tilde, dt, MatrixBC);
+
+        // std::cout << Eigen::MatrixXd(T) << std::endl;
+
+        // set vector b
+        Eigen::VectorXd b(N);
+        setbVector(b, consVec, picardCons, hHalf_tilde, picardKineticEnergy, dt,
+                   MatrixBC);
+
+        // set up solver
+        // Eigen::BiCGSTAB<Eigen::SparseMatrix<double> > solver;
+        Eigen::GMRES<Eigen::SparseMatrix<double> > solver;
+
+        // if(iter==1){std::cout << Eigen::MatrixXd(T) << std::endl;}
+        T.makeCompressed();
+        solver.compute(T);
+        // solver.setMaxIterations(Niter);
+        solver.setTolerance(tol);
+
+        Eigen::VectorXd pressure_sol = solver.solve(b);
+
+        if (solver.info() != Eigen::Success)
+        {
+            std::cerr << "GMRES failed to converge" << std::endl;
+            exit(EXIT_FAILURE);
+        }
+
+        for (int i = 0; i < N; i++)
+        {
+            picardPressure[i + nGhost] = pressure_sol(i);
+        }
+        transmissiveBC(picardPressure, nGhost);
+
+        // update momentum
+        for (int i = nGhost; i < N + nGhost; i++)
+        {
+            picardMomentum[i]
+                = explicitConsVec[i][1]
+                  - 0.5 * dt / dx * (picardPressure[i + 1] - picardPressure[i - 1]);
+
+            picardCons[i][1] = picardMomentum[i];
+        }
+        transmissiveBC(picardMomentum, nGhost);
+
+        // update enthalpy
+        for (int i = nGhost; i < N + nGhost; i++)
+        {
+            picardKineticEnergy[i] = 0.5 * epsilon * explicitConsVec[i][0]
+                                     * (picardMomentum[i] / explicitConsVec[i][0])
+                                     * (picardMomentum[i] / explicitConsVec[i][0]);
+        }
+        transmissiveBC(picardKineticEnergy, nGhost);
+
+        // update enthalpy
+        for (int i = nGhost; i < N + nGhost; i++)
+        {
+            enthalpies[i]
+                = Gamma / (Gamma - 1.0) * (picardPressure[i] / explicitConsVec[i][0]);
+        }
+        transmissiveBC(enthalpies, nGhost);
+
+        // update enthalpy on face
+        computeEnthalpyOnFace(hHalf_tilde, enthalpies, picardCons);
     }
 
-    transmissiveBC(implicitPressure);
+    implicitPressure = picardPressure;
 }
 
 void computeImplicitEnthalpy(std::vector<double> &implicitEnthalpy,
-                             std::vector<double>  implicitPressure)
+                             std::vector<double> implicitPressure, stateVec F_exp)
 {
 
-    for (int i = 0; i < N; i++)
+    for (int i = 0; i < N + 2 * nGhost; i++)
     {
-        implicitEnthalpy[i] = implicitPressure[i] * Gamma / (Gamma - 1.0);
+        implicitEnthalpy[i] = implicitPressure[i] * Gamma / ((Gamma - 1.0));
     }
 }
 
 void IMEXupdate(stateVec &consVec, double &dt)
 {
-    std::vector<double> implicitPressure(N + nGhost);
-    std::vector<double> implicitEnthalpy(N + nGhost);
-    std::vector<double> implicit_hTilde(N + nGhost);
-    stateVec            F_exp(N + nGhost), F_imp(N + nGhost);
+    std::vector<double> implicitPressure(N + 2 * nGhost);
+    std::vector<double> implicitEnthalpy(N + 2 * nGhost);
+    std::vector<double> implicit_hTilde(N + 2 * nGhost);
+    stateVec            F_exp(N + 2 * nGhost), F_imp(N + 2 * nGhost);
     dx = (x1 - x0) / N;
 
     // Do explicit update fist
     explicitUpdate(F_exp, consVec, dt);
-    transmissiveBC(F_exp);
+    transmissiveBC(F_exp, nGhost);
 
     // get implicit variables
     computeImplicitPressure(implicitPressure, consVec, F_exp, dt);
-    computeImplicitEnthalpy(implicitEnthalpy, implicitPressure);
+    computeImplicitEnthalpy(implicitEnthalpy, implicitPressure, F_exp);
 
-    for (int i = nGhost; i <= N; i++)
+    for (int i = nGhost; i < N + nGhost; i++)
     {
         consVec[i][0] = F_exp[i][0];
 
@@ -511,12 +627,12 @@ void IMEXupdate(stateVec &consVec, double &dt)
                         - 0.5 * dt / (epsilon * dx)
                               * (implicitPressure[i + 1] - implicitPressure[i - 1]);
 
-        computeEnthalpyOnFace(implicit_hTilde, implicitEnthalpy, F_exp); 
+        computeEnthalpyOnFace(implicit_hTilde, implicitEnthalpy, F_exp);
     }
 
-    transmissiveBC(consVec);
+    transmissiveBC(consVec, nGhost);
 
-    for (int i = nGhost; i <= N; i++)
+    for (int i = nGhost; i < N + nGhost; i++)
     {
         consVec[i][2]
             = F_exp[i][2]

@@ -29,19 +29,19 @@ int main(int argc, char **argv)
     double dx   = (x1 - x0) / N;
     int    iter = 0;
 
-    stateVec consVec(N + nGhost);
-    stateVec primVec(N + nGhost);
+    stateVec consVec(N + 2*nGhost);
+    stateVec primVec(N + 2*nGhost);
 
     setRiemannProblem(consVec, primVec, argc, argv);
-    transmissiveBC(consVec);
+    transmissiveBC(consVec, nGhost);
 
     while (t < t_stop)
     {
-        // for (int i = 0; i < N + nGhost; i++)
+        // for (int i = 0; i < 10; i++)
         // {
         //     std::cout << "rho = " << consVec[i][0]
         //               << " , v = " << consVec[i][1] / consVec[i][0]
-        //               << " , p = " << getPressure(consVec[i]) 
+        //               << " , p = " << getPressure(consVec[i])
         //               << " E = " << consVec[i][2] << std::endl;
         // }
         compute_dt(consVec, dt, iter);
@@ -54,19 +54,18 @@ int main(int argc, char **argv)
         t += dt;
 
         iter++;
+
+        std::string   fileName = "output/ToroTest1/ToroTest1_100.csv";
+        std::ofstream outFile(fileName);
+
+        for (int i = nGhost; i < N + nGhost; i++)
+        {
+            double x = x0 + (i - nGhost) * dx;
+            consToPrim(primVec[i], consVec[i]);
+            outFile << x << " , " << primVec[i][0] << " , " << primVec[i][1] << " , "
+                    << primVec[i][2] << std::endl;
+        }
+        outFile.close();
     }
-
-    std::string   fileName = "output/ToroTest1/ToroTest1_100.csv";
-    std::ofstream outFile(fileName);
-
-    for (int i = nGhost; i < N; i++)
-    {
-        double x = x0 + (i - 1) * dx;
-        consToPrim(primVec[i], consVec[i]);
-        outFile << x << " , " << consVec[i][0] << " , " << consVec[i][1] << " , "
-                << consVec[i][2] << std::endl;
-    }
-    outFile.close();
-
     return 0;
 }

@@ -42,7 +42,8 @@ void setTMatrix(Eigen::SparseMatrix<double> &T, std::vector<double> &hHalf_tilde
 void computeImplicitPressure(std::vector<double> &implicitPressure, stateVec &consVec,
                              stateVec &explicitConsVec, double dt);
 void computeImplicitEnthalpy(std::vector<double> &implicitEnthalpy,
-                             std::vector<double>  implicitPressure);
+                             std::vector<double>  implicitPressure,
+                             stateVec F_exp);
 void IMEXupdate(stateVec &consVec, double &dt);
 
 #endif

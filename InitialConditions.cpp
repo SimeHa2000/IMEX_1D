@@ -14,7 +14,7 @@ void setRiemannProblem(stateVec &cons, stateVec &prim, int argc, char **argv)
     // asser that N is even
     assert(N % 2 == 0);
 
-    for (int i = 1; i <= N; i++)
+    for (int i = 0; i <= N+2*nGhost; i++)
     {
         if (i < N / 2)
         {

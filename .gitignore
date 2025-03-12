@@ -1,0 +1,8 @@
+# Compiled source 
+*.o
+
+# data files 
+*.csv
+
+#other 
+~output/ToroTest1/
