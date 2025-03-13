@@ -53,7 +53,7 @@ double getKineticEnergy(state& cons){
 
     double v = mom/rho;
 
-    double k = epsilon * 0.5 * rho * fabs(v * v);
+    double k = epsilon * 0.5 * fabs(v * v) * rho;
 
     return k;
 }
@@ -66,9 +66,9 @@ double getEnthalpy(state& cons){
 
     double p = getPressure(cons);
     double k = getKineticEnergy(cons);
-    double e = E/rho - k/rho;
+    double e = (E - k)/rho;
     double h = e + p;
-    //double h = rho*p*Gamma / (Gamma -1.0);
+    //double h = p*Gamma / (Gamma -1.0);
 
     return h;
 }

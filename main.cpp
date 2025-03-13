@@ -37,13 +37,6 @@ int main(int argc, char **argv)
 
     while (t < t_stop)
     {
-        // for (int i = 0; i < 10; i++)
-        // {
-        //     std::cout << "rho = " << consVec[i][0]
-        //               << " , v = " << consVec[i][1] / consVec[i][0]
-        //               << " , p = " << getPressure(consVec[i])
-        //               << " E = " << consVec[i][2] << std::endl;
-        // }
         compute_dt(consVec, dt, iter);
 
         std::cout << "iteration " << iter + 1 << ",  time = " << t << ",  dt = " << dt
@@ -60,10 +53,13 @@ int main(int argc, char **argv)
 
         for (int i = nGhost; i < N + nGhost; i++)
         {
-            double x = x0 + (i - nGhost) * dx;
+            double x = x0 + (i - nGhost+0.5) * dx;
             consToPrim(primVec[i], consVec[i]);
             outFile << x << " , " << primVec[i][0] << " , " << primVec[i][1] << " , "
                     << primVec[i][2] << std::endl;
+
+            //non-conservative update 
+
         }
         outFile.close();
     }

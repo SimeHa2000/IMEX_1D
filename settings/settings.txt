@@ -1,6 +1,6 @@
 # Simulation parameters
 t_stop = 0.25
-N = 100
+N = 500
 Gamma = 1.4;
 CFL = 0.5;
 epsilon = 1.0; 

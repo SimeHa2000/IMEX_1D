@@ -218,22 +218,26 @@ void computeEnthalpyOnFace(std::vector<double> &hHalf_tilde,
                            std::vector<double> &enthalpies, stateVec &explicitConsVec)
 {
 
-    for (int i = 0; i < hHalf_tilde.size(); i++)
+    for (int i = 0; i < hHalf_tilde.size() - 1; i++)
     {
         // if (fabs(explicitConsVec[i][1]) <= 1e-10
         //     && fabs(explicitConsVec[i + 1][1]) <= 1e-10)
         // {
-        hHalf_tilde[i] = fabs(0.5 * (enthalpies[i] + enthalpies[i + 1]));
+        hHalf_tilde[i] = fabs(0.5
+                              * (enthalpies[i] / explicitConsVec[i][0]
+                                 + enthalpies[i + 1] / explicitConsVec[i + 1][0]));
         //}
 
         // else
         // {
 
-        //     hHalf_tilde[i] = fabs(0.5
-        //                           * ((enthalpies[i] * explicitConsVec[i][1])
-        //                              + (enthalpies[i + 1] * explicitConsVec[i + 1][1]))
-        //                           / (explicitConsVec[i][1] + explicitConsVec[i +
-        //                           1][1]));
+        //     hHalf_tilde[i]
+        //         = fabs(0.5
+        //                * ((enthalpies[i] / explicitConsVec[i][0] *
+        //                explicitConsVec[i][1])
+        //                   + (enthalpies[i + 1] / explicitConsVec[i + 1][0]
+        //                      * explicitConsVec[i + 1][1]))
+        //                / (explicitConsVec[i][1] + explicitConsVec[i + 1][1]));
         // }
     }
 }
@@ -245,27 +249,32 @@ void initialisePicardVars(std::vector<double> &enthalpies,
                           std::vector<double> &initMomentum, stateVec &consVec,
                           stateVec &explicitConsVec)
 {
-    for (int i = 0; i < enthalpies.size(); i++)
-    {
-        enthalpies[i] = getEnthalpy(explicitConsVec[i]);
-    }
-
-    computeEnthalpyOnFace(hHalf_tilde, enthalpies, explicitConsVec);
 
     for (int i = 0; i < initKineticEnergy.size(); i++)
     {
-        initKineticEnergy[i] = epsilon / 2 * explicitConsVec[i][0]
-                               * (explicitConsVec[i][1] / explicitConsVec[i][0])
-                               * (explicitConsVec[i][1] / explicitConsVec[i][0]);
+        // initKineticEnergy[i] = getKineticEnergy(explicitConsVec[i]);
+        initKineticEnergy[i]
+            = explicitConsVec[i][2] - (consVec[i][2] - getKineticEnergy(consVec[i]));
+    }
+
+    for (int i = 0; i < initMomentum.size(); i++)
+    {
+        initMomentum[i] = explicitConsVec[i][1];
     }
 
     for (int i = 0; i < initPressure.size(); i++)
     {
         // initPressure[i] = (Gamma - 1.0) * consVec[i][2]
         //                   - kStar[i]; // TODO: checks this - kStar or k
-
         initPressure[i] = (Gamma - 1.0) * consVec[i][2] - getKineticEnergy(consVec[i]);
     }
+
+    for (int i = 0; i < enthalpies.size(); i++)
+    {
+        enthalpies[i] = getEnthalpy(explicitConsVec[i]);
+    }
+
+    computeEnthalpyOnFace(hHalf_tilde, enthalpies, explicitConsVec);
 }
 
 void setbVector(Eigen::VectorXd &b, stateVec &consVec, stateVec &explicitConsVec,
@@ -639,5 +648,10 @@ void IMEXupdate(stateVec &consVec, double &dt)
               - 0.5 * dt / dx
                     * (implicit_hTilde[i] * (consVec[i + 1][1] + consVec[i][1])
                        - implicit_hTilde[i - 1] * (consVec[i][1] + consVec[i - 1][1]));
+
+        // non-conservative update
+        // consVec[i][2] = epsilon * 0.5 * consVec[i][0] * (consVec[i][1] / consVec[i][0])
+        //                     * (consVec[i][1] / consVec[i][0])
+        //                 + implicitPressure[i] / (consVec[i][0] * (Gamma - 1.0));
     }
 }
